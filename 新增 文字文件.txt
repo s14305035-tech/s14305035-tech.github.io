@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>鋼鐵雄心：沙盤推演 Hearts of Iron: Tactical Sandbox</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #0b0f19;
+            color: #e2e8f0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            user-select: none;
+        }
+        /* 軍事雷達網格背景 */
+        .radar-grid {
+            background-size: 40px 40px;
+            background-image: linear-gradient(to right, rgba(16, 185, 129, 0.04) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(16, 185, 129, 0.04) 1px, transparent 1px);
+        }
+        /* 霓虹邊框與陰影 */
+        .military-panel {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.05);
+            backdrop-filter: blur(8px);
+        }
+        .military-panel-active {
+            border: 1px solid rgba(16, 185, 129, 0.6);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+        }
+        .neon-glow-green {
+            text-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+        }
+        .neon-glow-red {
+            text-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+        }
+        /* 隱藏滾動條但保持滾動 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* 節奏動畫 */
+        @keyframes pulse-fast {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .pulse-active {
+            animation: pulse-fast 1s infinite;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col radar-grid overflow-hidden">
+
+    <!-- 頂部：戰略指揮 HUD -->
+    <header class="h-16 border-b border-emerald-900/40 bg-slate-950/90 px-6 flex items-center justify-between z-10">
+        <!-- 國家資訊與國旗 -->
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2">
+                <span class="text-3xl" id="hud-flag">🇩🇪</span>
+                <div>
+                    <h1 class="font-black text-sm text-emerald-400 tracking-wider uppercase" id="hud-country-name">德意志國</h1>
+                    <p class="text-[10px] text-slate-400 font-bold" id="hud-faction">軸心國領袖</p>
+                </div>
+            </div>
+            
+            <!-- 世界緊張局勢 -->
+            <div class="hidden md:flex items-center gap-2 bg-slate-900/60 px-3 py-1 rounded border border-emerald-950/50">
+                <span class="text-xs font-bold text-red-400">🔥 世界緊張局勢:</span>
+                <span class="text-sm font-bold text-red-400" id="world-tension">0.0%</span>
+                <div class="w-16 bg-slate-950 h-1.5 rounded overflow-hidden">
+                    <div id="tension-bar" class="bg-red-500 h-full" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 國家戰略資源 -->
+        <div class="flex items-center gap-6 text-xs md:text-sm">
+            <div class="flex items-center gap-1.5" title="人力：影響部隊生產與增援">
+                <span class="text-rose-400">👤</span>
+                <span class="text-slate-400">人力:</span>
+                <span class="font-bold text-white" id="res-manpower">1.2M</span>
+            </div>
+            <div class="flex items-center gap-1.5" title="工業產能 (IC)：可用於生產的工廠點數">
+                <span class="text-yellow-400">🏭</span>
+                <span class="text-slate-400">工廠:</span>
+                <span class="font-bold text-white" id="res-ic">45/45</span>
+            </div>
+            <div class="flex items-center gap-1.5" title="鋼鐵：裝甲部隊生產要素">
+                <span class="text-blue-400">🔩</span>
+                <span class="text-slate-400">鋼鐵:</span>
+                <span class="font-bold text-white" id="res-steel">80</span>
+            </div>
+            <div class="flex items-center gap-1.5" title="石油：空軍與機械化運作要素">
+                <span class="text-amber-500">🛢️</span>
+                <span class="text-slate-400">石油:</span>
+                <span class="font-bold text-white" id="res-oil">50</span>
+            </div>
+        </div>
+
+        <!-- 時間與操控 -->
+        <div class="flex items-center gap-4">
+            <div class="text-right">
+                <div class="text-sm font-mono font-bold text-emerald-400 tracking-widest" id="game-date">1936年01月01日</div>
+                <div class="text-[9px] text-slate-500 font-mono" id="game-time">00:00</div>
+            </div>
+            <div class="flex gap-1 bg-slate-900 p-1 rounded border border-slate-800">
+                <button onclick="togglePause()" class="px-2 py-1 bg-emerald-950 text-emerald-400 hover:bg-emerald-900 text-xs font-bold rounded" id="btn-pause">⏸ 暫停</button>
+                <button onclick="changeSpeed(1)" class="px-2 py-1 text-slate-400 hover:text-white text-xs font-mono font-bold" id="speed-1">1X</button>
+                <button onclick="changeSpeed(2)" class="px-2 py-1 text-slate-400 hover:text-white text-xs font-mono font-bold" id="speed-2">2X</button>
+                <button onclick="changeSpeed(3)" class="px-2 py-1 text-slate-400 hover:text-white text-xs font-mono font-bold" id="speed-3">3X</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主區塊：左右面板與中央戰略地圖 -->
+    <main class="flex-1 flex overflow-hidden relative">
+
+        <!-- 左側面板：國家發展、科研與生產 -->
+        <section class="w-80 border-r border-emerald-900/30 bg-slate-950/85 flex flex-col overflow-y-auto no-scrollbar p-4 gap-4 z-10">
+            
+            <!-- 國家焦點 (National Focus) -->
+            <div class="military-panel p-3.5 rounded-lg">
+                <h3 class="text-xs font-black text-emerald-400 tracking-widest uppercase mb-2 border-b border-emerald-950 pb-1.5 flex justify-between items-center">
+                    <span>🎯 國家發展專策</span>
+                    <span class="text-[10px] text-slate-500">Focus Tree</span>
+                </h3>
+                <div class="bg-slate-900/80 p-2.5 rounded border border-emerald-900/30">
+                    <div class="flex justify-between items-center mb-1.5">
+                        <span class="text-xs font-bold text-white" id="focus-title">工業現代化計劃</span>
+                        <span class="text-[10px] text-amber-400" id="focus-progress-text">35%</span>
+                    </div>
+                    <!-- 進度條 -->
+                    <div class="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+                        <div id="focus-bar" class="bg-amber-500 h-full" style="width: 35%"></div>
+                    </div>
+                    <div class="mt-2 grid grid-cols-2 gap-1.5">
+                        <button onclick="selectFocus('industry')" class="text-[10px] py-1 bg-slate-800 hover:bg-emerald-950 border border-slate-700 hover:border-emerald-700 text-slate-300 hover:text-white rounded font-bold transition-all">🏗 發展工業</button>
+                        <button onclick="selectFocus('militarize')" class="text-[10px] py-1 bg-slate-800 hover:bg-emerald-950 border border-slate-700 hover:border-emerald-700 text-slate-300 hover:text-white rounded font-bold transition-all">🎖 軍事總動員</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 軍事科技研發 (Research) -->
+            <div class="military-panel p-3.5 rounded-lg">
+                <h3 class="text-xs font-black text-emerald-400 tracking-widest uppercase mb-2 border-b border-emerald-950 pb-1.5 flex justify-between items-center">
+                    <span>🔬 陸空軍科研升級</span>
+                    <span class="text-[10px] text-slate-500">Research</span>
+                </h3>
+                <div class="flex flex-col gap-2">
+                    <div class="flex justify-between items-center bg-slate-900/60 p-2 rounded border border-slate-800 text-xs">
+                        <div>
+                            <div class="font-bold text-slate-200">陸軍戰術：閃電戰術 (<span id="tech-army-level">Lv.1</span>)</div>
+                            <div class="text-[10px] text-slate-500">提升裝甲部隊 15% 突破力</div>
+                        </div>
+                        <button onclick="upgradeTech('army')" class="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded text-[10px] transition-all">升級</button>
+                    </div>
+                    <div class="flex justify-between items-center bg-slate-900/60 p-2 rounded border border-slate-800 text-xs">
+                        <div>
+                            <div class="font-bold text-slate-200">空軍戰術：空中優勢 (<span id="tech-air-level">Lv.1</span>)</div>
+                            <div class="text-[10px] text-slate-500">提升戰鬥機 15% 空中支援</div>
+                        </div>
+                        <button onclick="upgradeTech('air')" class="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded text-[10px] transition-all">升級</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 軍事生產線 (Military Production) -->
+            <div class="military-panel p-3.5 rounded-lg flex-1 flex flex-col">
+                <h3 class="text-xs font-black text-emerald-400 tracking-widest uppercase mb-2 border-b border-emerald-950 pb-1.5 flex justify-between items-center">
+                    <span>⚙️ 軍事生產裝配線</span>
+                    <span class="text-[10px] text-slate-500">Production</span>
+                </h3>
+                
+                <!-- 可生產品項 -->
+                <div class="grid grid-cols-3 gap-1.5 mb-3">
+                    <button onclick="queueProduction('infantry')" class="p-1.5 bg-slate-900 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-800 text-center rounded transition-all">
+                        <span class="text-lg">🪖</span>
+                        <div class="text-[9px] font-bold text-white mt-1">步兵師</div>
+                        <div class="text-[8px] text-slate-500">10 IC / 10K 人力</div>
+                    </button>
+                    <button onclick="queueProduction('tank')" class="p-1.5 bg-slate-900 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-800 text-center rounded transition-all">
+                        <span class="text-lg">🚜</span>
+                        <div class="text-[9px] font-bold text-white mt-1">裝甲師</div>
+                        <div class="text-[8px] text-slate-500">25 IC / 鋼鐵</div>
+                    </button>
+                    <button onclick="queueProduction('fighter')" class="p-1.5 bg-slate-900 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-800 text-center rounded transition-all">
+                        <span class="text-lg">✈️</span>
+                        <div class="text-[9px] font-bold text-white mt-1">戰鬥機</div>
+                        <div class="text-[8px] text-slate-500">20 IC / 石油</div>
+                    </button>
+                </div>
+
+                <!-- 生產進度清單 -->
+                <div class="flex-1 overflow-y-auto no-scrollbar flex flex-col gap-2">
+                    <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">當前生產排程：</h4>
+                    <div id="production-list" class="flex flex-col gap-2">
+                        <!-- 動態插入 -->
+                        <div class="text-xs text-slate-500 text-center py-4 bg-slate-900/30 rounded border border-dashed border-slate-800">無進行中的生產項目</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 中央：戰略沙盤推演地圖 (SVG 戰區) -->
+        <section class="flex-1 bg-slate-950 relative flex items-center justify-center p-4">
+            
+            <!-- 背景雷達指針特效 -->
+            <div class="absolute inset-0 pointer-events-none flex items-center justify-center opacity-10">
+                <div class="w-[500px] h-[500px] border border-emerald-500 rounded-full flex items-center justify-center">
+                    <div class="w-[300px] h-[300px] border border-emerald-500 rounded-full flex items-center justify-center"></div>
+                </div>
+            </div>
+
+            <!-- SVG 地圖本體 -->
+            <svg id="theater-map" class="w-full h-full max-w-[900px] max-h-[600px] drop-shadow-[0_0_20px_rgba(16,185,129,0.05)]" viewBox="0 0 900 600">
+                <!-- 定義霓虹發光濾鏡 -->
+                <defs>
+                    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="6" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                    <filter id="battle-glow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="8" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                </defs>
+
+                <!-- 地圖網格線、連結線 (邊界) -->
+                <g id="map-connections">
+                    <!-- JS 動態繪製連接線 -->
+                </g>
+
+                <!-- 戰術進攻方向規劃箭頭 (紅色大箭頭) -->
+                <g id="map-arrows">
+                    <!-- JS 動態繪製箭頭 -->
+                </g>
+
+                <!-- 行省地圖區塊 -->
+                <g id="map-provinces">
+                    <!-- JS 動態繪製行省節點 (使用多邊形與大型圓角觸控鈕) -->
+                </g>
+
+                <!-- 戰鬥交火動畫特效點 -->
+                <g id="map-battles">
+                    <!-- JS 動態繪製交火星號 -->
+                </g>
+            </svg>
+
+            <!-- 戰場漂浮戰訊 -->
+            <div id="battle-notifications" class="absolute pointer-events-none inset-0 overflow-hidden text-xs font-mono"></div>
+        </section>
+
+        <!-- 右側面板：戰術控制、行省詳情與外交決策 -->
+        <section class="w-80 border-l border-emerald-900/30 bg-slate-950/85 flex flex-col overflow-y-auto no-scrollbar p-4 gap-4 z-10">
+            
+            <!-- 選中行省詳細資訊 -->
+            <div class="military-panel p-3.5 rounded-lg" id="panel-province-details">
+                <h3 class="text-xs font-black text-emerald-400 tracking-widest uppercase mb-2 border-b border-emerald-950 pb-1.5 flex justify-between items-center">
+                    <span>📍 區域戰術情報</span>
+                    <span class="text-[10px] text-slate-500">Province Info</span>
+                </h3>
+                <div class="flex flex-col gap-2">
+                    <div class="flex justify-between items-center">
+                        <span class="text-xl font-black text-white" id="prov-name">柏林</span>
+                        <span class="text-xs px-2 py-0.5 rounded font-black text-slate-950 bg-emerald-400" id="prov-owner-badge">德國</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 mt-2 text-xs bg-slate-900/50 p-2 rounded border border-slate-800">
+                        <div>
+                            <span class="text-slate-500">🏭 工業區:</span>
+                            <span class="font-bold text-white ml-1" id="prov-ic">12</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500">🔩 鋼鐵產量:</span>
+                            <span class="font-bold text-white ml-1" id="prov-steel">15</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500">🛢️ 石油產量:</span>
+                            <span class="font-bold text-white ml-1" id="prov-oil">0</span>
+                        </div>
+                        <div>
+                            <span class="text-slate-500">🗺️ 基礎設施:</span>
+                            <span class="font-bold text-white ml-1">良好</span>
+                        </div>
+                    </div>
+
+                    <!-- 駐防部隊編制 -->
+                    <div class="mt-2">
+                        <h4 class="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-1">當前駐軍編制:</h4>
+                        <div class="grid grid-cols-3 gap-2 text-xs bg-slate-900/80 p-2.5 rounded border border-emerald-950/40">
+                            <div class="text-center">
+                                <span class="text-lg">🪖</span>
+                                <div class="text-[10px] text-slate-400 mt-1">步兵師</div>
+                                <div class="font-black text-white" id="prov-infantry">4</div>
+                            </div>
+                            <div class="text-center">
+                                <span class="text-lg">🚜</span>
+                                <div class="text-[10px] text-slate-400 mt-1">裝甲師</div>
+                                <div class="font-black text-white" id="prov-tank">2</div>
+                            </div>
+                            <div class="text-center">
+                                <span class="text-lg">✈️</span>
+                                <div class="text-[10px] text-slate-400 mt-1">戰鬥機</div>
+                                <div class="font-black text-white" id="prov-fighter">100</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 戰術部署 & 進攻指令按鈕 -->
+                    <div id="province-actions" class="mt-3 flex flex-col gap-2">
+                        <!-- 動態生成決策按鈕 -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- 外交與全域作戰決策 -->
+            <div class="military-panel p-3.5 rounded-lg flex-1 flex flex-col">
+                <h3 class="text-xs font-black text-emerald-400 tracking-widest uppercase mb-2 border-b border-emerald-950 pb-1.5 flex justify-between items-center">
+                    <span>🌐 全球地緣政治與戰略</span>
+                    <span class="text-[10px] text-slate-500">Diplomacy</span>
+                </h3>
+                
+                <!-- 陣營動態 -->
+                <div class="flex flex-col gap-2 mb-3">
+                    <div class="flex justify-between items-center text-xs bg-slate-900/60 p-2 rounded border border-slate-800">
+                        <span class="font-bold text-slate-300">🇩🇪 軸心國 (Axis)</span>
+                        <span class="text-emerald-400 font-bold text-[10px]" id="dipl-axis-status">作戰動員中</span>
+                    </div>
+                    <div class="flex justify-between items-center text-xs bg-slate-900/60 p-2 rounded border border-slate-800">
+                        <span class="font-bold text-slate-300">🇬🇧 同盟國 (Allies)</span>
+                        <span class="text-sky-400 font-bold text-[10px]" id="dipl-allies-status">民主防衛</span>
+                    </div>
+                    <div class="flex justify-between items-center text-xs bg-slate-900/60 p-2 rounded border border-slate-800">
+                        <span class="font-bold text-slate-300">🇷🇺 共產國際 (Comintern)</span>
+                        <span class="text-red-400 font-bold text-[10px]" id="dipl-comintern-status">備戰升級中</span>
+                    </div>
+                </div>
+
+                <!-- 戰略情報記錄誌 -->
+                <div class="flex-1 bg-slate-950 p-2 rounded border border-emerald-950/30 flex flex-col min-h-[140px]">
+                    <h4 class="text-[10px] font-bold text-slate-400 tracking-wider mb-1.5 border-b border-slate-900 pb-1 flex justify-between">
+                        <span>📋 帝國統帥部日誌</span>
+                        <button onclick="clearLogs()" class="text-[8px] text-emerald-600 hover:text-emerald-400">清除</button>
+                    </h4>
+                    <div id="combat-logs" class="flex-1 overflow-y-auto text-[10px] font-mono text-emerald-500/80 flex flex-col gap-1.5 no-scrollbar pr-1">
+                        <!-- 動態日誌 -->
+                        <div class="text-slate-600 italic">系統整備完畢。等待下達作戰指令...</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 啟動與選擇國家畫面 (Splash & Selection) -->
+    <div id="start-modal" class="absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center z-30 p-6">
+        <div class="max-w-2xl w-full text-center flex flex-col items-center">
+            <div class="animate-pulse mb-2 text-emerald-400 text-sm tracking-widest font-black uppercase">Grand Strategy Warfare Sandbox</div>
+            <h1 class="text-5xl font-black mb-6 tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-400 to-indigo-500 uppercase neon-text">
+                鋼鐵雄心<br><span class="text-3xl text-white">沙盤推演</span>
+            </h1>
+
+            <p class="text-slate-400 text-sm max-w-lg mb-8 leading-relaxed">
+                這是個基於 HTML5 與高科技地圖引擎開發的二戰戰略遊戲。招募步兵師與裝甲集群，控制領空，在戰略沙盤上發起進攻箭頭，奪取柏林、巴黎與莫斯科，改變歷史！
+            </p>
+
+            <h3 class="text-sm font-bold text-slate-300 uppercase tracking-widest mb-4">請選擇您要扮演的強權國家：</h3>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full mb-8">
+                <!-- 選擇德國 -->
+                <div onclick="selectCountry('GER')" class="group cursor-pointer bg-slate-900 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-500 p-4 rounded-xl flex flex-col items-center gap-3 transition-all duration-300">
+                    <span class="text-5xl group-hover:scale-110 transition-transform">🇩🇪</span>
+                    <div>
+                        <div class="font-black text-white text-base">德意志國</div>
+                        <div class="text-[10px] text-amber-500 font-bold mt-1">閃電戰主力 · 軸心國</div>
+                    </div>
+                </div>
+
+                <!-- 選擇英國 -->
+                <div onclick="selectCountry('ENG')" class="group cursor-pointer bg-slate-900 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-500 p-4 rounded-xl flex flex-col items-center gap-3 transition-all duration-300">
+                    <span class="text-5xl group-hover:scale-110 transition-transform">🇬🇧</span>
+                    <div>
+                        <div class="font-black text-white text-base">大英帝國</div>
+                        <div class="text-[10px] text-sky-400 font-bold mt-1">皇家海空軍 · 同盟國</div>
+                    </div>
+                </div>
+
+                <!-- 選擇蘇聯 -->
+                <div onclick="selectCountry('SOV')" class="group cursor-pointer bg-slate-900 hover:bg-emerald-950/40 border border-slate-800 hover:border-emerald-500 p-4 rounded-xl flex flex-col items-center gap-3 transition-all duration-300">
+                    <span class="text-5xl group-hover:scale-110 transition-transform">🇷🇺</span>
+                    <div>
+                        <div class="font-black text-white text-base">蘇維埃聯盟</div>
+                        <div class="text-[10px] text-red-500 font-bold mt-1">大縱深人海 · 共產國際</div>
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="startGame()" id="btn-begin" class="hidden px-8 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black rounded-lg text-lg uppercase transition-all duration-200 shadow-[0_0_15px_rgba(16,185,129,0.3)] border border-emerald-400">
+                進入統帥部，開始推演
+            </button>
+        </div>
+    </div>
+
+    <!-- 勝利或失敗結算畫面 (End Game Modal) -->
+    <div id="end-modal" class="absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center z-40 p-6 hidden">
+        <div class="max-w-md w-full text-center flex flex-col items-center">
+            <div class="text-5xl mb-4" id="end-icon">🏆</div>
+            <h2 class="text-4xl font-black mb-3 text-emerald-400 tracking-wider uppercase" id="end-title">推演大獲全勝</h2>
+            <p class="text-slate-400 text-sm mb-6 leading-relaxed" id="end-desc">你成功的帶領國家擊敗了所有地緣威脅，建立了由你主導的新世界秩序。</p>
+
+            <button onclick="resetToSplash()" class="px-8 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-lg text-sm uppercase transition-all">
+                返回主選單
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- 核心 Web Audio API 戰略音效 ---
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new AudioCtx();
+            }
+        }
+
+        function playSound(type) {
+            if (!audioCtx) return;
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            const now = audioCtx.currentTime;
+
+            if (type === 'click') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(300, now + 0.08);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.08);
+            } 
+            else if (type === 'combat') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(80, now);
+                osc.frequency.linearRampToValueAtTime(200, now + 0.15);
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.15);
+            }
+            else if (type === 'focus_complete') {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(261.63, now); // C4
+                osc.frequency.setValueAtTime(329.63, now + 0.1); // E4
+                osc.frequency.setValueAtTime(392.00, now + 0.2); // G4
+                osc.frequency.setValueAtTime(523.25, now + 0.3); // C5
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.5);
+            }
+            else if (type === 'war') {
+                // 警報聲 (二戰防空警報)
+                const osc1 = audioCtx.createOscillator();
+                const osc2 = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc1.type = 'sawtooth';
+                osc2.type = 'sine';
+                
+                osc1.frequency.setValueAtTime(220, now);
+                osc1.frequency.linearRampToValueAtTime(330, now + 0.4);
+                osc1.frequency.linearRampToValueAtTime(220, now + 0.8);
+
+                osc2.frequency.setValueAtTime(225, now);
+                osc2.frequency.linearRampToValueAtTime(335, now + 0.4);
+                osc2.frequency.linearRampToValueAtTime(225, now + 0.8);
+                
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+                
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc1.start(now);
+                osc1.stop(now + 1.2);
+                osc2.start(now);
+                osc2.stop(now + 1.2);
+            }
+        }
+
+        // --- 戰略核心數據庫 ---
+        let playerCountry = 'GER'; // GER, ENG, SOV
+        let gameActive = false;
+        let isPaused = true;
+        let gameSpeed = 1; // 1, 2, 3
+        let worldTension = 0.0;
+        
+        let currentDate = new Date(1936, 0, 1, 0, 0, 0); // 1936年1月1日
+        let globalTimer = null;
+
+        // 強權基本屬性
+        const countries = {
+            'GER': { name: '德意志國', flag: '🇩🇪', faction: '軸心國 (Axis)', color: '#10b981', head: '柏林' },
+            'ENG': { name: '大英帝國', flag: '🇬🇧', faction: '同盟國 (Allies)', color: '#38bdf8', head: '倫敦' },
+            'SOV': { name: '蘇維埃聯盟', flag: '🇷🇺', faction: '共產國際 (Comintern)', color: '#f43f5e', head: '莫斯科' }
+        };
+
+        // 全球國家資源
+        const countryResources = {
+            'GER': { manpower: 1500000, ic: 55, steel: 90, oil: 20 },
+            'ENG': { manpower: 950000, ic: 40, steel: 70, oil: 80 },
+            'SOV': { manpower: 2500000, ic: 50, steel: 110, oil: 60 }
+        };
+
+        // 科技等級
+        const countryTech = {
+            'GER': { army: 1, air: 1 },
+            'ENG': { army: 1, air: 1 },
+            'SOV': { army: 1, air: 1 }
+        };
+
+        // 國家焦點狀態
+        const currentFocus = {
+            'GER': { type: 'industry', progress: 0 },
+            'ENG': { type: 'industry', progress: 0 },
+            'SOV': { type: 'industry', progress: 0 }
+        };
+
+        // 生產排程隊列
+        let productionQueue = [];
+
+        // 行省 (戰區節點)
+        const provinces = {
+            'london': { name: '倫敦', x: 240, y: 310, owner: 'ENG', ic: 15, steel: 10, oil: 5, infantry: 5, tank: 1, fighter: 150 },
+            'paris': { name: '巴黎', x: 260, y: 440, owner: 'ENG', ic: 12, steel: 8, oil: 5, infantry: 4, tank: 1, fighter: 100 },
+            'brussels': { name: '布魯塞爾', x: 330, y: 390, owner: 'ENG', ic: 6, steel: 4, oil: 0, infantry: 3, tank: 0, fighter: 50 },
+            'berlin': { name: '柏林', x: 440, y: 340, owner: 'GER', ic: 20, steel: 15, oil: 0, infantry: 6, tank: 3, fighter: 200 },
+            'munich': { name: '慕尼黑', x: 420, y: 450, owner: 'GER', ic: 12, steel: 10, oil: 0, infantry: 4, tank: 2, fighter: 100 },
+            'warsaw': { name: '華沙', x: 570, y: 330, owner: 'GER', ic: 10, steel: 5, oil: 0, infantry: 3, tank: 1, fighter: 50 },
+            'vienna': { name: '維也納', x: 500, y: 440, owner: 'GER', ic: 8, steel: 6, oil: 0, infantry: 3, tank: 1, fighter: 50 },
+            'rome': { name: '羅馬', x: 450, y: 550, owner: 'GER', ic: 10, steel: 5, oil: 5, infantry: 4, tank: 1, fighter: 80 },
+            'moscow': { name: '莫斯科', x: 800, y: 200, owner: 'SOV', ic: 18, steel: 20, oil: 10, infantry: 8, tank: 4, fighter: 150 },
+            'leningrad': { name: '列寧格勒', x: 740, y: 100, owner: 'SOV', ic: 10, steel: 12, oil: 0, infantry: 5, tank: 2, fighter: 100 },
+            'kyiv': { name: '基輔', x: 720, y: 320, owner: 'SOV', ic: 12, steel: 15, oil: 5, infantry: 6, tank: 3, fighter: 100 },
+            'stalingrad': { name: '史達林格勒', x: 840, y: 350, owner: 'SOV', ic: 14, steel: 18, oil: 25, infantry: 7, tank: 3, fighter: 120 }
+        };
+
+        // 行省邊境鄰接關係 (決定能否發動攻擊)
+        const adjacencies = [
+            ['london', 'paris'], ['london', 'brussels'],
+            ['paris', 'brussels'], ['paris', 'munich'],
+            ['brussels', 'berlin'], ['brussels', 'munich'],
+            ['berlin', 'munich'], ['berlin', 'warsaw'], ['berlin', 'vienna'],
+            ['munich', 'vienna'], ['munich', 'rome'],
+            ['vienna', 'warsaw'], ['vienna', 'rome'],
+            ['warsaw', 'kyiv'], ['warsaw', 'leningrad'],
+            ['leningrad', 'moscow'], ['leningrad', 'kyiv'],
+            ['kyiv', 'moscow'], ['kyiv', 'stalingrad'],
+            ['moscow', 'stalingrad']
+        ];
+
+        // 當前選中與進攻目標行省
+        let selectedProvinceId = 'berlin';
+        let attackTargetProvinceId = null;
+
+        // 當前作戰戰役隊列
+        let activeBattles = [];
+
+        // 國家對應的默認主要大本營
+        const capitalMapping = {
+            'ENG': 'london',
+            'GER': 'berlin',
+            'SOV': 'moscow'
+        };
+
+        // --- 地圖與渲染功能 ---
+
+        function buildMap() {
+            const connG = document.getElementById('map-connections');
+            const provG = document.getElementById('map-provinces');
+
+            connG.innerHTML = '';
+            provG.innerHTML = '';
+
+            // 1. 繪製邊境戰線連接線
+            adjacencies.forEach(conn => {
+                const p1 = provinces[conn[0]];
+                const p2 = provinces[conn[1]];
+                
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', p1.x);
+                line.setAttribute('y1', p1.y);
+                line.setAttribute('x2', p2.x);
+                line.setAttribute('y2', p2.y);
+                line.setAttribute('stroke', 'rgba(16, 185, 129, 0.15)');
+                line.setAttribute('stroke-width', '2');
+                line.setAttribute('stroke-dasharray', '5,5');
+                connG.appendChild(line);
+            });
+
+            // 2. 繪製行省戰略核心
+            Object.keys(provinces).forEach(id => {
+                const prov = provinces[id];
+                const countryColor = countries[prov.owner].color;
+
+                const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                g.setAttribute('class', 'cursor-pointer group');
+                g.onclick = () => handleProvinceClick(id);
+
+                // 外發光環
+                const glowCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                glowCircle.setAttribute('cx', prov.x);
+                glowCircle.setAttribute('cy', prov.y);
+                glowCircle.setAttribute('r', '32');
+                glowCircle.setAttribute('fill', 'transparent');
+                glowCircle.setAttribute('stroke', countryColor);
+                glowCircle.setAttribute('stroke-width', '1.5');
+                glowCircle.setAttribute('opacity', selectedProvinceId === id ? '1' : '0.25');
+                glowCircle.setAttribute('class', selectedProvinceId === id ? 'pulse-active' : '');
+                glowCircle.id = `glow-${id}`;
+                g.appendChild(glowCircle);
+
+                // 行省圓盤本體
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', prov.x);
+                circle.setAttribute('cy', prov.y);
+                circle.setAttribute('r', '24');
+                circle.setAttribute('fill', 'rgba(15, 23, 42, 0.95)');
+                circle.setAttribute('stroke', countryColor);
+                circle.setAttribute('stroke-width', '2.5');
+                circle.setAttribute('filter', 'url(#glow)');
+                g.appendChild(circle);
+
+                // 駐紮軍隊總師數標章
+                const textTroop = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                textTroop.setAttribute('x', prov.x);
+                textTroop.setAttribute('y', prov.y + 4);
+                textTroop.setAttribute('text-anchor', 'middle');
+                textTroop.setAttribute('fill', '#ffffff');
+                textTroop.setAttribute('font-size', '13');
+                textTroop.setAttribute('font-weight', 'bold');
+                textTroop.textContent = prov.infantry + prov.tank;
+                textTroop.id = `troops-${id}`;
+                g.appendChild(textTroop);
+
+                // 國旗貼紙
+                const textFlag = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                textFlag.setAttribute('x', prov.x - 14);
+                textFlag.setAttribute('y', prov.y - 10);
+                textFlag.setAttribute('font-size', '10');
+                textFlag.textContent = countries[prov.owner].flag;
+                textFlag.id = `flag-${id}`;
+                g.appendChild(textFlag);
+
+                // 行省名稱
+                const textName = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                textName.setAttribute('x', prov.x);
+                textName.setAttribute('y', prov.y + 36);
+                textName.setAttribute('text-anchor', 'middle');
+                textName.setAttribute('fill', '#94a3b8');
+                textName.setAttribute('font-size', '11');
+                textName.setAttribute('font-weight', 'bold');
+                textName.textContent = prov.name;
+                g.appendChild(textName);
+
+                provG.appendChild(g);
+            });
+        }
+
+        // 當前地圖即時重繪 (更新數字與色彩)
+        function updateMapDisplay() {
+            Object.keys(provinces).forEach(id => {
+                const prov = provinces[id];
+                const countryColor = countries[prov.owner].color;
+
+                const glow = document.getElementById(`glow-${id}`);
+                const troops = document.getElementById(`troops-${id}`);
+                const flag = document.getElementById(`flag-${id}`);
+
+                if (glow) {
+                    glow.setAttribute('stroke', countryColor);
+                    glow.setAttribute('opacity', selectedProvinceId === id ? '1' : '0.25');
+                    if (selectedProvinceId === id) {
+                        glow.classList.add('pulse-active');
+                    } else {
+                        glow.classList.remove('pulse-active');
+                    }
+                }
+
+                if (troops) {
+                    troops.textContent = prov.infantry + prov.tank;
+                }
+
+                if (flag) {
+                    flag.textContent = countries[prov.owner].flag;
+                }
+            });
+
+            // 繪製戰役進行箭頭
+            const arrowG = document.getElementById('map-arrows');
+            arrowG.innerHTML = '';
+            
+            activeBattles.forEach(b => {
+                const fromP = provinces[b.from];
+                const toP = provinces[b.to];
+                
+                // 戰略大紅色箭頭
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                const dx = toP.x - fromP.x;
+                const dy = toP.y - fromP.y;
+                const len = Math.sqrt(dx*dx + dy*dy);
+                const ux = dx / len;
+                const uy = dy / len;
+
+                // 起始與終止縮排，避免蓋住行省圓盤
+                const startX = fromP.x + ux * 26;
+                const startY = fromP.y + uy * 26;
+                const endX = toP.x - ux * 28;
+                const endY = toP.y - uy * 28;
+
+                // 畫出帶有箭頭尾部的三角形箭頭
+                const arrowWidth = 10;
+                const pX1 = endX - ux * 15 - uy * arrowWidth;
+                const pY1 = endY - uy * 15 + ux * arrowWidth;
+                const pX2 = endX - ux * 15 + uy * arrowWidth;
+                const pY2 = endY - uy * 15 - ux * arrowWidth;
+
+                const d = `M ${startX} ${startY} L ${endX - ux * 10} ${endY - uy * 10} M ${endX} ${endY} L ${pX1} ${pY1} L ${pX2} ${pY2} Z`;
+                path.setAttribute('d', d);
+                path.setAttribute('stroke', '#f43f5e');
+                path.setAttribute('stroke-width', '4');
+                path.setAttribute('fill', '#f43f5e');
+                path.setAttribute('opacity', '0.85');
+                path.setAttribute('filter', 'url(#battle-glow)');
+                arrowG.appendChild(path);
+            });
+        }
+
+        // --- 玩法與流程事件處理 ---
+
+        function selectCountry(code) {
+            playSound('click');
+            playerCountry = code;
+            
+            // 同步 HUD 國旗與色彩
+            document.getElementById('hud-flag').innerText = countries[code].flag;
+            document.getElementById('hud-country-name').innerText = countries[code].name;
+            document.getElementById('hud-faction').innerText = countries[code].faction;
+
+            // 高亮選中
+            document.querySelectorAll('#start-modal .group').forEach(el => {
+                el.classList.remove('military-panel-active');
+            });
+
+            selectedProvinceId = capitalMapping[code];
+            document.getElementById('btn-begin').classList.remove('hidden');
+        }
+
+        function startGame() {
+            playSound('focus_complete');
+            document.getElementById('start-modal').classList.add('hidden');
+            
+            gameActive = true;
+            isPaused = false;
+            gameSpeed = 1;
+
+            buildMap();
+            updateHUD();
+            updateProvincePanel();
+
+            // 啟動主時間軸
+            if (globalTimer) clearInterval(globalTimer);
+            globalTimer = setInterval(tick, 1000 / gameSpeed);
+
+            addLog(`🎖️ 戰略統帥部成立。你已接管 ${countries[playerCountry].name} 戰略指揮權！`);
+        }
+
+        function resetToSplash() {
+            document.getElementById('end-modal').classList.add('hidden');
+            document.getElementById('start-modal').classList.remove('hidden');
+            document.getElementById('btn-begin').classList.add('hidden');
+        }
+
+        // --- 國家資源 HUD 與數據同步 ---
+        function updateHUD() {
+            const res = countryResources[playerCountry];
+            document.getElementById('res-manpower').innerText = (res.manpower / 1000000).toFixed(2) + 'M';
+            document.getElementById('res-ic').innerText = `${res.ic}/${res.ic}`;
+            document.getElementById('res-steel').innerText = res.steel;
+            document.getElementById('res-oil').innerText = res.oil;
+
+            // 顯示世界緊張局勢
+            document.getElementById('world-tension').innerText = worldTension.toFixed(1) + '%';
+            document.getElementById('tension-bar').style.width = Math.min(100, worldTension) + '%';
+        }
+
+        // 選擇國家發展專策
+        function selectFocus(type) {
+            playSound('click');
+            currentFocus[playerCountry].type = type;
+            currentFocus[playerCountry].progress = 0;
+            addLog(`🎯 開始推動國家方針：${type === 'industry' ? '【工業基礎現代化】' : '【動員重整軍備】'}`);
+            updateFocusUI();
+        }
+
+        function updateFocusUI() {
+            const focus = currentFocus[playerCountry];
+            const title = focus.type === 'industry' ? '工業現代化計劃' : '軍事總動員計劃';
+            document.getElementById('focus-title').innerText = title;
+            document.getElementById('focus-progress-text').innerText = focus.progress + '%';
+            document.getElementById('focus-bar').style.width = focus.progress + '%';
+        }
+
+        // 科技研發升級
+        function upgradeTech(techType) {
+            const tech = countryTech[playerCountry];
+            const res = countryResources[playerCountry];
+            const cost = tech[techType] * 40; // 升級費用：IC
+
+            if (res.ic >= 15) { // 消耗科研預算
+                playSound('focus_complete');
+                tech[techType]++;
+                document.getElementById(`tech-${techType}-level`).innerText = 'Lv.' + tech[techType];
+                addLog(`🔬 科學研究院突破！我們的 ${techType === 'army' ? '陸軍裝甲' : '空軍火力'} 研發已提升至等級 ${tech[techType]}`);
+            } else {
+                addLog(`⚠️ 工業產能不足，科研項目需要至少 15 工業力配合。`);
+            }
+        }
+
+        // --- 生產排程模組 ---
+        function queueProduction(unitType) {
+            playSound('click');
+            const res = countryResources[playerCountry];
+            let costIC = 10;
+            let costManpower = 10000;
+            let name = "";
+
+            if (unitType === 'infantry') {
+                costIC = 10;
+                costManpower = 12000;
+                name = "機械化步兵師";
+            } else if (unitType === 'tank') {
+                costIC = 25;
+                costManpower = 5000;
+                name = "裝甲突擊師";
+                if (res.steel < 15) {
+                    addLog(`🔩 生產裝甲部隊需要至少 15 鋼鐵資源！`);
+                    return;
+                }
+            } else if (unitType === 'fighter') {
+                costIC = 20;
+                costManpower = 2000;
+                name = "戰術戰鬥機群";
+                if (res.oil < 10) {
+                    addLog(`🛢️ 生產空中戰機需要至少 10 石油資源！`);
+                    return;
+                }
+            }
+
+            if (res.manpower < costManpower) {
+                addLog(`👤 備役人力竭盡！無法組建新的部隊編制。`);
+                return;
+            }
+
+            // 扣除並加入隊列
+            res.manpower -= costManpower;
+            productionQueue.push({
+                type: unitType,
+                name: name,
+                costIC: costIC,
+                progress: 0,
+                targetProvince: capitalMapping[playerCountry] // 默認在大本營部署
+            });
+
+            addLog(`🛠️ 動員軍工流水線，開始組建：${name}`);
+            updateProductionQueueUI();
+            updateHUD();
+        }
+
+        function updateProductionQueueUI() {
+            const list = document.getElementById('production-list');
+            if (productionQueue.length === 0) {
+                list.innerHTML = `<div class="text-xs text-slate-500 text-center py-4 bg-slate-900/30 rounded border border-dashed border-slate-800">無進行中的生產項目</div>`;
+                return;
+            }
+
+            list.innerHTML = '';
+            productionQueue.forEach((p, idx) => {
+                const item = document.createElement('div');
+                item.className = "bg-slate-900/80 p-2.5 rounded border border-emerald-950/40 text-xs";
+                item.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-bold text-white">${p.name}</span>
+                        <span class="text-[10px] text-emerald-400 font-mono">${p.progress}%</span>
+                    </div>
+                    <div class="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden mb-1">
+                        <div class="bg-emerald-400 h-full" style="width: ${p.progress}%"></div>
+                    </div>
+                    <div class="flex justify-between text-[9px] text-slate-500">
+                        <span>分配工廠: ${p.costIC} IC</span>
+                        <button onclick="cancelProduction(${idx})" class="text-red-400 hover:text-red-300">取消</button>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function cancelProduction(idx) {
+            playSound('click');
+            const p = productionQueue[idx];
+            // 返還部分人力
+            countryResources[playerCountry].manpower += Math.floor(p.costIC * 500);
+            productionQueue.splice(idx, 1);
+            addLog(`❌ 已取消 ${p.name} 的組建生產線。`);
+            updateProductionQueueUI();
+            updateHUD();
+        }
+
+        // --- 行省戰術詳情與點擊操控 ---
+        function handleProvinceClick(id) {
+            playSound('click');
+            selectedProvinceId = id;
+            updateMapDisplay();
+            updateProvincePanel();
+        }
+
+        function updateProvincePanel() {
+            const prov = provinces[selectedProvinceId];
+            document.getElementById('prov-name').innerText = prov.name;
+            document.getElementById('prov-owner-badge').innerText = countries[prov.owner].name;
+            document.getElementById('prov-owner-badge').style.backgroundColor = countries[prov.owner].color;
+
+            document.getElementById('prov-ic').innerText = prov.ic + ' IC';
+            document.getElementById('prov-steel').innerText = prov.steel;
+            document.getElementById('prov-oil').innerText = prov.oil;
+
+            document.getElementById('prov-infantry').innerText = prov.infantry;
+            document.getElementById('prov-tank').innerText = prov.tank;
+            document.getElementById('prov-fighter').innerText = prov.fighter;
+
+            const actionsDiv = document.getElementById('province-actions');
+            actionsDiv.innerHTML = '';
+
+            // 如果該行省為己方掌控
+            if (prov.owner === playerCountry) {
+                actionsDiv.innerHTML = `
+                    <div class="text-[10px] text-slate-500 mb-1">此區為帝國掌控。請指派進攻防區：</div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="planAttack()" class="py-2 bg-red-600 hover:bg-red-500 text-white font-bold rounded text-xs transition-all">⚔️ 規劃進攻箭頭</button>
+                        <button onclick="demobilizeTroops()" class="py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded text-xs transition-all">🔄 後撤防線</button>
+                    </div>
+                `;
+            } else {
+                // 敵方掌控，檢測是否可進攻 (鄰接)
+                const canAttack = checkAdjacency(selectedProvinceId, capitalMapping[playerCountry]) || isPlayerAdjacent(selectedProvinceId);
+                
+                if (canAttack) {
+                    actionsDiv.innerHTML = `
+                        <div class="text-[10px] text-red-400 font-bold mb-1">⚠️ 發現敵軍邊境線。立刻組織集團軍發動攻勢！</div>
+                        <button onclick="launchAttack()" class="w-full py-2 bg-gradient-to-r from-red-600 to-rose-700 hover:from-red-500 hover:to-rose-600 text-white font-black rounded text-xs tracking-wider uppercase transition-all shadow-lg animate-pulse">
+                            🔥 發動閃電突擊
+                        </button>
+                    `;
+                } else {
+                    actionsDiv.innerHTML = `
+                        <div class="text-[10px] text-slate-600 italic">此區域不與己方防線直接接壤。請先挺進行省突破戰。</div>
+                    `;
+                }
+            }
+        }
+
+        // 判定玩家是否有掌控任何與目標行省鄰接的行省
+        function isPlayerAdjacent(targetId) {
+            let adjacent = false;
+            adjacencies.forEach(conn => {
+                if (conn[0] === targetId && provinces[conn[1]].owner === playerCountry) adjacent = true;
+                if (conn[1] === targetId && provinces[conn[0]].owner === playerCountry) adjacent = true;
+            });
+            return adjacent;
+        }
+
+        // 判定兩行省是否直接鄰接
+        function checkAdjacency(id1, id2) {
+            let adj = false;
+            adjacencies.forEach(conn => {
+                if ((conn[0] === id1 && conn[1] === id2) || (conn[0] === id2 && conn[1] === id1)) {
+                    adj = true;
+                }
+            });
+            return adj;
+        }
+
+        // 點擊「規劃進攻箭頭」
+        function planAttack() {
+            playSound('click');
+            addLog(`🗺️ 請在地圖上點擊任何「鄰接的敵方行省」作為集團軍突破防線。`);
+        }
+
+        // 撤退/防線調度
+        function demobilizeTroops() {
+            const prov = provinces[selectedProvinceId];
+            if (prov.infantry + prov.tank <= 1) {
+                addLog(`⚠️ 本防區已達最低駐防防線，不能再撤退調度部隊。`);
+                return;
+            }
+            playSound('click');
+            // 將一支部隊調配往首都
+            const capId = capitalMapping[playerCountry];
+            if (selectedProvinceId === capId) {
+                addLog(`⚠️ 首都已是帝國最後防禦節點。`);
+                return;
+            }
+            
+            if (prov.tank > 0) {
+                prov.tank--;
+                provinces[capId].tank++;
+                addLog(`🔄 調度【裝甲師】後撤至大本營 ${provinces[capId].name}`);
+            } else if (prov.infantry > 0) {
+                prov.infantry--;
+                provinces[capId].infantry++;
+                addLog(`🔄 調度【步兵師】後撤至大本營 ${provinces[capId].name}`);
+            }
+            updateProvincePanel();
+            updateMapDisplay();
+        }
+
+        // 發動突擊
+        function launchAttack() {
+            initAudio();
+            // 尋找與此目標鄰接的己方行省中，兵力最雄厚的作為發動點
+            let bestLaunchId = null;
+            let maxTroops = -1;
+
+            adjacencies.forEach(conn => {
+                let neighborId = null;
+                if (conn[0] === selectedProvinceId) neighborId = conn[1];
+                if (conn[1] === selectedProvinceId) neighborId = conn[0];
+
+                if (neighborId && provinces[neighborId].owner === playerCountry) {
+                    const totalStrength = provinces[neighborId].infantry * 10 + provinces[neighborId].tank * 25;
+                    if (totalStrength > maxTroops && (provinces[neighborId].infantry + provinces[neighborId].tank) > 1) {
+                        maxTroops = totalStrength;
+                        bestLaunchId = neighborId;
+                    }
+                }
+            });
+
+            if (!bestLaunchId) {
+                addLog(`⚠️ 發動攻勢失敗：鄰接我方防線的駐紮師數量過低（至少需保留 1 師留守）。`);
+                return;
+            }
+
+            // 建立戰役物件
+            const fromP = provinces[bestLaunchId];
+            const toP = provinces[selectedProvinceId];
+
+            // 檢查是否已在戰鬥中
+            const alreadyInBattle = activeBattles.find(b => b.to === selectedProvinceId);
+            if (alreadyInBattle) {
+                addLog(`⚠️ 該戰區已有交火戰役進行中，不能重複集結攻勢。`);
+                return;
+            }
+
+            playSound('war');
+
+            // 抽調發動點的戰鬥部隊進攻 (保留 1 師駐守)
+            let attInf = 0;
+            let attTank = 0;
+            
+            if (fromP.infantry > 1) {
+                attInf = fromP.infantry - 1;
+                fromP.infantry = 1;
+            }
+            if (fromP.tank > 0) {
+                attTank = fromP.tank;
+                fromP.tank = 0;
+            }
+
+            if (attInf === 0 && attTank === 0) {
+                addLog(`⚠️ 集結失敗：突擊出發防區兵力過於單薄。`);
+                return;
+            }
+
+            // 世界緊張局勢增加
+            worldTension += 4.5 + (Math.random() * 3);
+            updateHUD();
+
+            const battle = {
+                from: bestLaunchId,
+                to: selectedProvinceId,
+                attacker: playerCountry,
+                defender: toP.owner,
+                attInf: attInf,
+                attTank: attTank,
+                defInf: toP.infantry,
+                defTank: toP.tank,
+                // 戰鬥組織度 (與兵種強度)
+                attOrg: 100,
+                defOrg: 100,
+                duration: 0
+            };
+
+            activeBattles.push(battle);
+            addLog(`🔥 宣戰！我軍從 ${fromP.name} 發動「前線閃電突擊」向 ${toP.name} 發起強攻！`);
+            addLog(`📊 參戰戰力：我方 ${attInf} 步兵師、${attTank} 裝甲師 VS 敵方 ${toP.infantry} 步兵師、${toP.tank} 裝甲師`);
+            
+            updateMapDisplay();
+            updateProvincePanel();
+        }
+
+        // --- 戰役動態沙盤計算引擎 ---
+        function updateBattles() {
+            for (let i = activeBattles.length - 1; i >= 0; i--) {
+                const b = activeBattles[i];
+                b.duration++;
+
+                playSound('combat');
+
+                // 基礎戰力因子 (導入研發科技加成)
+                const attTechMod = 1 + (countryTech[b.attacker].army * 0.15);
+                const defTechMod = 1 + (countryTech[b.defender].army * 0.15);
+
+                const attPower = (b.attInf * 4 + b.attTank * 12) * attTechMod * (Math.random() * 0.5 + 0.85);
+                const defPower = (b.defInf * 5 + b.defTank * 9) * defTechMod * (Math.random() * 0.5 + 0.85);
+
+                // 計算組織度損失 (Organization Damage)
+                const attDamage = Math.max(2, (defPower / (attPower + 1)) * 10);
+                const defDamage = Math.max(2, (attPower / (defPower + 1)) * 12);
+
+                b.attOrg -= attDamage;
+                b.defOrg -= defDamage;
+
+                // 隨機兵力損耗 (機率在戰鬥中損失整師)
+                if (Math.random() < 0.15) {
+                    if (Math.random() < 0.6 && b.attInf > 0) {
+                        b.attInf--;
+                        spawnFloatingText(provinces[b.to].x, provinces[b.to].y - 20, "我方一師潰退", "#ef4444");
+                    } else if (b.attTank > 0) {
+                        b.attTank--;
+                        spawnFloatingText(provinces[b.to].x, provinces[b.to].y - 20, "裝甲戰損", "#ef4444");
+                    }
+                }
+
+                if (Math.random() < 0.15) {
+                    if (Math.random() < 0.6 && b.defInf > 0) {
+                        b.defInf--;
+                        spawnFloatingText(provinces[b.to].x, provinces[b.to].y - 20, "敵軍一師全殲", "#10b981");
+                    } else if (b.defTank > 0) {
+                        b.defTank--;
+                        spawnFloatingText(provinces[b.to].x, provinces[b.to].y - 20, "敵坦克擊毀", "#10b981");
+                    }
+                }
+
+                // 在地圖上產生爆破粒子
+                spawnFloatingText(provinces[b.to].x + (Math.random() - 0.5) * 40, provinces[b.to].y + (Math.random() - 0.5) * 40, "💥", "#f59e0b");
+
+                // 戰鬥結束判定
+                if (b.attOrg <= 0 || (b.attInf === 0 && b.attTank === 0)) {
+                    // 進攻方潰潰失敗
+                    addLog(`❌ 戰報：進攻部隊在 ${provinces[b.to].name} 突破失敗，我軍被迫往後撤退。`);
+                    
+                    // 退回剩餘師
+                    const fromP = provinces[b.from];
+                    fromP.infantry += b.attInf;
+                    fromP.tank += b.attTank;
+
+                    activeBattles.splice(i, 1);
+                } 
+                else if (b.defOrg <= 0 || (b.defInf === 0 && b.defTank === 0)) {
+                    // 進攻方大獲全勝，占領行省
+                    const toP = provinces[b.to];
+                    const oldOwner = toP.owner;
+                    toP.owner = b.attacker;
+                    toP.infantry = b.attInf;
+                    toP.tank = b.attTank;
+
+                    addLog(`🏆 捷報！我軍成功突破並攻克 ${toP.name}！該防區已全面被我軍掌控！`);
+                    spawnFloatingText(toP.x, toP.y, "佔領!", "#10b981");
+
+                    activeBattles.splice(i, 1);
+
+                    // 檢查是否觸發勝利終止條件
+                    checkEndGameConditions();
+                }
+
+                updateMapDisplay();
+                updateProvincePanel();
+            }
+        }
+
+        // 檢查推演勝利條件
+        function checkEndGameConditions() {
+            // 判定是否所有行省都歸屬於某陣營或玩家
+            let totalProvinces = Object.keys(provinces).length;
+            let playerOwned = 0;
+            let sovOwned = 0;
+            let engOwned = 0;
+
+            Object.keys(provinces).forEach(id => {
+                if (provinces[id].owner === playerCountry) playerOwned++;
+                if (provinces[id].owner === 'SOV') sovOwned++;
+                if (provinces[id].owner === 'ENG') engOwned++;
+            });
+
+            const endModal = document.getElementById('end-modal');
+            const endTitle = document.getElementById('end-title');
+            const endDesc = document.getElementById('end-desc');
+            const endIcon = document.getElementById('end-icon');
+
+            if (playerOwned === totalProvinces) {
+                // 玩家大獲全勝
+                gameActive = false;
+                clearInterval(globalTimer);
+                endTitle.innerText = "推演大獲全勝！";
+                endDesc.innerText = `你帶領的國家成功征服了地圖上的所有戰略行省。建立了一個前所未有、由你主宰的新紀元帝國。`;
+                endIcon.innerText = "🏆";
+                endModal.classList.remove('hidden');
+            } else if (playerOwned === 0) {
+                // 玩家慘遭吞併亡國
+                gameActive = false;
+                clearInterval(globalTimer);
+                endTitle.innerText = "統帥部全面潰敗";
+                endTitle.classList.add('text-red-500');
+                endDesc.innerText = `很遺憾，你的所有領土皆已被敵方裝甲洪流突破與佔領。戰略推演宣告失敗。`;
+                endIcon.innerText = "💀";
+                endModal.classList.remove('hidden');
+            }
+        }
+
+        // 漂浮戰地即時動態特效字體
+        function spawnFloatingText(x, y, text, color) {
+            const container = document.getElementById('battle-notifications');
+            const el = document.createElement('div');
+            el.className = "absolute font-bold transition-all duration-1000 transform -translate-y-6 opacity-0 pointer-events-none";
+            el.style.left = `${x}px`;
+            el.style.top = `${y}px`;
+            el.style.color = color;
+            el.innerText = text;
+            container.appendChild(el);
+
+            // 觸發動畫
+            setTimeout(() => {
+                el.style.transform = "translateY(-40px) scale(1.1)";
+                el.style.opacity = "1";
+            }, 50);
+
+            setTimeout(() => {
+                el.style.opacity = "0";
+                setTimeout(() => el.remove(), 1000);
+            }, 800);
+        }
+
+        // --- AI 國家決策引擎 (模擬鋼鐵雄心 AI 多線攻守) ---
+        function runAIEngine() {
+            // 讓其餘兩大電腦強權隨機擴張或對抗
+            const aiCountries = Object.keys(countries).filter(c => c !== playerCountry);
+
+            aiCountries.forEach(ai => {
+                const res = countryResources[ai];
+
+                // 1. AI 工業與人力自動轉化為軍事增援
+                if (Math.random() < 0.2) {
+                    // 自動在首都生成部隊
+                    const cap = capitalMapping[ai];
+                    if (provinces[cap].owner === ai) {
+                        if (Math.random() < 0.3) {
+                            provinces[cap].tank += 1;
+                        } else {
+                            provinces[cap].infantry += 1;
+                        }
+                    }
+                }
+
+                // 2. AI 發動攻勢判定 (尋找可進攻目標)
+                if (Math.random() < 0.12) {
+                    let possibleAttacks = [];
+
+                    // 尋找 AI 控制下有足夠多兵力(>2師)的鄰接前線
+                    Object.keys(provinces).forEach(id => {
+                        const prov = provinces[id];
+                        if (prov.owner === ai && (prov.infantry + prov.tank) > 2) {
+                            // 尋找其鄰接非本國的敵方領土
+                            adjacencies.forEach(conn => {
+                                let targetId = null;
+                                if (conn[0] === id) targetId = conn[1];
+                                if (conn[1] === id) targetId = conn[0];
+
+                                if (targetId && provinces[targetId].owner !== ai) {
+                                    possibleAttacks.push({ from: id, to: targetId });
+                                }
+                            });
+                        }
+                    });
+
+                    if (possibleAttacks.length > 0) {
+                        // 挑選一個目標進攻
+                        const pick = possibleAttacks[Math.floor(Math.random() * possibleAttacks.length)];
+                        const fromP = provinces[pick.from];
+                        const toP = provinces[pick.to];
+
+                        // 避免重複進攻相同區域
+                        const alreadyIn = activeBattles.find(b => b.to === pick.to);
+                        if (!alreadyIn) {
+                            let attInf = fromP.infantry - 1;
+                            let attTank = fromP.tank;
+                            
+                            fromP.infantry = 1;
+                            fromP.tank = 0;
+
+                            const battle = {
+                                from: pick.from,
+                                to: pick.to,
+                                attacker: ai,
+                                defender: toP.owner,
+                                attInf: attInf,
+                                attTank: attTank,
+                                defInf: toP.infantry,
+                                defTank: toP.tank,
+                                attOrg: 100,
+                                defOrg: 100,
+                                duration: 0
+                            };
+
+                            activeBattles.push(battle);
+                            addLog(`⚠️ AI突擊戰：${countries[ai].name} 從 ${fromP.name} 調遣主力向 ${countries[toP.owner].name} 的 ${toP.name} 防線發動了全面會戰！`);
+                            updateMapDisplay();
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- 主時間軸心 (Tick Engine) ---
+        function tick() {
+            if (isPaused || !gameActive) return;
+
+            // 1. 推進日期
+            currentDate.setHours(currentDate.getHours() + 4); // 每秒走 4 小時
+            
+            const year = currentDate.getFullYear();
+            const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+            const day = String(currentDate.getDate()).padStart(2, '0');
+            const hour = String(currentDate.getHours()).padStart(2, '0');
+
+            document.getElementById('game-date').innerText = `${year}年${month}月${day}日`;
+            document.getElementById('game-time').innerText = `${hour}:00`;
+
+            // 2. 產能與生產排程推進
+            const res = countryResources[playerCountry];
+            
+            // 人力與資源被動每日自然成長
+            if (currentDate.getHours() === 0) {
+                res.manpower += Math.floor(res.ic * 150); // 工廠產出兵源動員
+                updateHUD();
+            }
+
+            // 推進國策
+            const focus = currentFocus[playerCountry];
+            focus.progress += 2;
+            if (focus.progress >= 100) {
+                focus.progress = 0;
+                playSound('focus_complete');
+                
+                if (focus.type === 'industry') {
+                    res.ic += 8;
+                    res.steel += 12;
+                    addLog(`🎯 國家專策完成：【工業基礎現代化】！我們額外新增了 +8 工廠點數與大量鋼鐵！`);
+                } else if (focus.type === 'militarize') {
+                    res.manpower += 350000;
+                    addLog(`🎯 國家專策完成：【軍事重整總動員】！備役人力瞬間動員補充 +350,000 人！`);
+                }
+            }
+            updateFocusUI();
+
+            // 推進生產排程
+            if (productionQueue.length > 0) {
+                const currentJob = productionQueue[0];
+                currentJob.progress += Math.floor(res.ic / 3.5); // 產能決定建造速度
+                
+                if (currentJob.progress >= 100) {
+                    // 生產完成
+                    productionQueue.shift();
+                    
+                    const capId = capitalMapping[playerCountry];
+                    if (currentJob.type === 'infantry') {
+                        provinces[capId].infantry += 1;
+                    } else if (currentJob.type === 'tank') {
+                        provinces[capId].tank += 1;
+                    } else if (currentJob.type === 'fighter') {
+                        provinces[capId].fighter += 50;
+                    }
+
+                    playSound('focus_complete');
+                    addLog(`📦 生產完成！全新組建的 【${currentJob.name}】 已成功部署至大本營 ${provinces[capId].name}。`);
+                    
+                    updateProductionQueueUI();
+                    updateProvincePanel();
+                    updateMapDisplay();
+                } else {
+                    updateProductionQueueUI();
+                }
+            }
+
+            // 3. 處理戰事動態推演
+            updateBattles();
+
+            // 4. AI 戰略思考
+            runAIEngine();
+        }
+
+        // --- 暫停與時間控制 ---
+        function togglePause() {
+            playSound('click');
+            isPaused = !isPaused;
+            const btn = document.getElementById('btn-pause');
+            if (isPaused) {
+                btn.innerText = '▶ 繼續';
+                btn.className = 'px-2 py-1 bg-amber-950 text-amber-400 hover:bg-amber-900 text-xs font-bold rounded';
+            } else {
+                btn.innerText = '⏸ 暫停';
+                btn.className = 'px-2 py-1 bg-emerald-950 text-emerald-400 hover:bg-emerald-900 text-xs font-bold rounded';
+            }
+        }
+
+        function changeSpeed(speed) {
+            playSound('click');
+            gameSpeed = speed;
+
+            // 高亮當前速度
+            [1, 2, 3].forEach(s => {
+                const el = document.getElementById(`speed-${s}`);
+                if (s === speed) {
+                    el.className = 'px-2 py-1 text-emerald-400 font-mono font-bold';
+                } else {
+                    el.className = 'px-2 py-1 text-slate-500 hover:text-white font-mono font-bold';
+                }
+            });
+
+            if (gameActive && !isPaused) {
+                clearInterval(globalTimer);
+                globalTimer = setInterval(tick, 1000 / gameSpeed);
+            }
+        }
+
+        // --- 日誌工具函數 ---
+        function addLog(text) {
+            const logs = document.getElementById('combat-logs');
+            const log = document.createElement('div');
+            log.className = "pb-1 border-b border-slate-900/50";
+            
+            const timeStamp = `[${String(currentDate.getMonth()+1).padStart(2,'0')}/${String(currentDate.getDate()).padStart(2,'0')}]`;
+            log.innerHTML = `<span class="text-emerald-700 font-bold mr-1">${timeStamp}</span>${text}`;
+            
+            logs.appendChild(log);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function clearLogs() {
+            playSound('click');
+            document.getElementById('combat-logs').innerHTML = '';
+        }
+    </script>
+</body>
+</html>
